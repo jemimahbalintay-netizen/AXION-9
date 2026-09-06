@@ -1,0 +1,17 @@
+[package]
+name = "axion-kernel"
+version = "9.4.1"
+edition = "2021"
+description = "AXION-9 deterministic compute kernel — arithmetic + unit algebra, compiled to WASM"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

@@ -196,3 +196,40 @@ export const IconCommand = (p: IconProps) => (
     <path d="M9 9V6a3 3 0 1 0-3 3h3Zm0 0v6m0-6h6m-6 6H6a3 3 0 1 0 3 3v-3Zm6-6V6a3 3 0 1 1 3 3h-3Zm0 0v6m0 0h3a3 3 0 1 1-3 3v-3Z" />
   </Base>
 );
+
+export const IconFolder = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M3 6.5C3 5.7 3.7 5 4.5 5h4.6c.4 0 .8.2 1.1.5l1.3 1.3c.3.3.7.5 1.1.5h6.9c.8 0 1.5.7 1.5 1.5v9.7c0 .8-.7 1.5-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-12Z" />
+  </Base>
+);
+
+export const IconBrain = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 4.5a2.8 2.8 0 0 0-2.8-1c-1.6.2-2.7 1.5-2.7 3v.3A3.3 3.3 0 0 0 4 10c0 .9.4 1.8 1 2.4A3.4 3.4 0 0 0 6.5 18c.5 1.6 2 2.5 3.6 2.3L12 20V4.5ZM12 4.5a2.8 2.8 0 0 1 2.8-1c1.6.2 2.7 1.5 2.7 3v.3A3.3 3.3 0 0 1 20 10c0 .9-.4 1.8-1 2.4a3.4 3.4 0 0 1-1.5 5.6c-.5 1.6-2 2.5-3.6 2.3L12 20" />
+    <path d="M8.5 9.5h2M13.5 9.5h2M8.5 14h2M13.5 14h2" />
+  </Base>
+);
+
+export const IconScreen = (p: IconProps) => (
+  <Base {...p}>
+    <rect x="3" y="4.5" width="18" height="12.5" rx="2" />
+    <path d="M9 21h6M12 17v4" />
+  </Base>
+);
+
+export const IconOrbit = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="12" cy="12" r="3.2" />
+    <path d="M18.8 7.5c1.6 2.7.8 6.2-1.9 7.9M5.2 16.5c-1.6-2.7-.8-6.2 1.9-7.9" />
+    <circle cx="18.5" cy="6" r="1.3" />
+    <circle cx="5.5" cy="18" r="1.3" />
+  </Base>
+);
+
+export const IconGauge = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4.5 17.5a8.5 8.5 0 1 1 15 0" />
+    <path d="M12 14.5 15.5 9" />
+    <circle cx="12" cy="15" r="1.4" />
+  </Base>
+);

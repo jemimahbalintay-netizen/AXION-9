@@ -1,26 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import { countTokens } from '../lib/store';
-import { IconSend, IconStop } from './icons';
+import { IconFolder, IconScreen, IconSend, IconStop } from './icons';
 
-interface Command {
+interface SlashItem {
   cmd: string;
-  desc: string;
-  insert: string;
-  send?: boolean;
+  hint: string;
 }
 
-const COMMANDS: Command[] = [
-  { cmd: '/help', desc: 'Full directive registry', insert: '/help', send: true },
-  { cmd: '/clear', desc: 'Wipe this session buffer', insert: '/clear', send: true },
-  { cmd: '/math', desc: 'Arithmetic kernel', insert: '(128 * 46) - 17^2' },
-  { cmd: '/convert', desc: 'Unit algebra', insert: 'convert 100 km to mi' },
-  { cmd: '/time', desc: 'Temporal query', insert: 'days until 2026-12-25' },
-  { cmd: '/remember', desc: 'Write to long-term memory', insert: 'remember: ' },
-  { cmd: '/task', desc: 'Commit a task to the lattice', insert: 'add task: ' },
-  { cmd: '/tasks', desc: 'List the task lattice', insert: 'list tasks', send: true },
-  { cmd: '/summarize', desc: 'Extractive summary of a passage', insert: 'summarize: ' },
-  { cmd: '/password', desc: 'Crypto-seeded key material', insert: 'password 24', send: true },
-  { cmd: '/base64', desc: 'Codec bank', insert: 'base64 encode ' },
+const SLASH_ITEMS: SlashItem[] = [
+  { cmd: '/help', hint: 'directive registry' },
+  { cmd: '/clear', hint: 'wipe session buffer' },
+  { cmd: '/graph', hint: 'open 3D knowledge graph' },
+  { cmd: '/screen', hint: 'capture + OCR the screen' },
+  { cmd: '/fs list', hint: 'list workspace files' },
+  { cmd: '/fs read ', hint: 'read a sandboxed file' },
+  { cmd: '/fs save ', hint: 'save last answer to file' },
+  { cmd: '/fs attach', hint: 'grant a directory' },
+  { cmd: '/fs detach', hint: 'release the directory' },
+  { cmd: '/neural on', hint: 'enable neural fallback' },
+  { cmd: '/neural off', hint: 'deterministic-only mode' },
+  { cmd: '/neural status', hint: 'neural layer diagnostics' },
 ];
 
 interface ComposerProps {
@@ -28,169 +27,181 @@ interface ComposerProps {
   onStop: () => void;
   streaming: boolean;
   inject: { text: string; n: number };
+  workspaceName: string | null;
+  onAttachWorkspace: () => void;
+  onReadScreen: () => void;
+  kernelLabel: string;
 }
 
-export function Composer({ onSend, onStop, streaming, inject }: ComposerProps) {
+export function Composer({ onSend, onStop, streaming, inject, workspaceName, onAttachWorkspace, onReadScreen, kernelLabel }: ComposerProps) {
   const [value, setValue] = useState('');
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [sel, setSel] = useState(0);
+  const [slashOpen, setSlashOpen] = useState(false);
+  const [slashSel, setSlashSel] = useState(0);
   const taRef = useRef<HTMLTextAreaElement>(null);
-
-  const matches = menuOpen ? COMMANDS.filter((c) => c.cmd.startsWith(value.trim().toLowerCase())) : [];
 
   useEffect(() => {
     if (inject.n > 0) {
       setValue(inject.text);
+      setSlashOpen(false);
       requestAnimationFrame(() => {
         const ta = taRef.current;
         if (ta) {
-          ta.style.height = 'auto';
-          ta.style.height = `${Math.min(168, ta.scrollHeight)}px`;
           ta.focus();
           ta.setSelectionRange(inject.text.length, inject.text.length);
         }
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inject.n]);
+  }, [inject]);
 
   useEffect(() => {
-    setSel(0);
+    const ta = taRef.current;
+    if (ta) {
+      ta.style.height = 'auto';
+      ta.style.height = `${Math.min(180, Math.max(46, ta.scrollHeight))}px`;
+    }
   }, [value]);
 
-  const resize = () => {
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.style.height = 'auto';
-    ta.style.height = `${Math.min(168, ta.scrollHeight)}px`;
-  };
+  const slashMatches = slashOpen
+    ? SLASH_ITEMS.filter((i) => i.cmd.startsWith(value.trim().toLowerCase()) || value.trim() === '/')
+    : [];
 
-  const submit = (text: string) => {
-    const t = text.trim();
-    if (!t || streaming) return;
+  const submit = () => {
+    const text = value.trim();
+    if (!text || streaming) return;
     setValue('');
-    requestAnimationFrame(resize);
-    onSend(t);
-    taRef.current?.focus();
-  };
-
-  const pick = (c: Command) => {
-    setMenuOpen(false);
-    if (c.send) {
-      submit(c.insert);
-    } else {
-      setValue(c.insert);
-      requestAnimationFrame(() => {
-        resize();
-        const ta = taRef.current;
-        if (ta) {
-          ta.focus();
-          ta.setSelectionRange(c.insert.length, c.insert.length);
-        }
-      });
-    }
-  };
-
-  const onChange = (v: string) => {
-    setValue(v);
-    setMenuOpen(v.trimStart().startsWith('/') && !v.includes('\n'));
-    requestAnimationFrame(resize);
+    setSlashOpen(false);
+    onSend(text);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (menuOpen && matches.length > 0) {
+    if (slashOpen && slashMatches.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setSel((s) => (s + 1) % matches.length);
+        setSlashSel((s) => (s + 1) % slashMatches.length);
         return;
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setSel((s) => (s - 1 + matches.length) % matches.length);
+        setSlashSel((s) => (s - 1 + slashMatches.length) % slashMatches.length);
         return;
       }
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
         e.preventDefault();
-        pick(matches[sel]);
+        setValue(slashMatches[slashSel].cmd.endsWith(' ') ? slashMatches[slashSel].cmd : `${slashMatches[slashSel].cmd} `);
+        setSlashOpen(false);
         return;
       }
       if (e.key === 'Escape') {
-        setMenuOpen(false);
+        setSlashOpen(false);
         return;
       }
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      submit(value);
+      submit();
     }
   };
 
   return (
-    <div className="relative mx-auto w-full max-w-3xl px-4 pb-4 pt-2 sm:px-6">
-      {menuOpen && matches.length > 0 && (
-        <div className="absolute bottom-full left-4 right-4 z-30 mb-2 overflow-hidden rounded-lg border border-ink-600 bg-ink-900/98 shadow-[0_-8px_40px_rgb(0_0_0/0.5)] backdrop-blur sm:left-6 sm:right-6 anim-fade-up">
-          <div className="border-b border-ink-700 px-3 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-500">
-            directives
+    <div className="shrink-0 border-t border-ink-700/70 bg-ink-900/70 px-4 pb-4 pt-2.5 backdrop-blur sm:px-6">
+      <div className="relative mx-auto w-full max-w-3xl">
+        {slashOpen && slashMatches.length > 0 && (
+          <div className="anim-fade-up absolute bottom-full left-0 right-0 z-20 mb-2 overflow-hidden rounded-lg border border-ink-600 bg-ink-900 shadow-[0_-12px_48px_rgb(0_0_0/0.5)]">
+            <div className="border-b border-ink-700 px-3.5 py-2 font-mono text-[9px] uppercase tracking-[0.22em] text-ink-500">
+              directive registry · {slashMatches.length} matches
+            </div>
+            <div className="max-h-56 overflow-y-auto py-1">
+              {slashMatches.map((item, i) => (
+                <button
+                  key={item.cmd}
+                  type="button"
+                  onMouseEnter={() => setSlashSel(i)}
+                  onClick={() => {
+                    setValue(item.cmd.endsWith(' ') ? item.cmd : `${item.cmd} `);
+                    setSlashOpen(false);
+                    taRef.current?.focus();
+                  }}
+                  className={`flex w-full items-center gap-3 px-3.5 py-2 text-left transition-colors ${i === slashSel ? 'bg-ink-700/70' : ''}`}
+                >
+                  <span className={`font-mono text-[12.5px] ${i === slashSel ? 'text-ember-300' : 'text-ink-100'}`}>{item.cmd}</span>
+                  <span className="ml-auto font-mono text-[10px] text-ink-500">{item.hint}</span>
+                </button>
+              ))}
+            </div>
           </div>
-          <ul className="max-h-64 overflow-y-auto py-1">
-            {matches.map((c, i) => (
-              <li key={c.cmd}>
+        )}
+
+        <div className={`rounded-xl border bg-ink-850/95 shadow-[0_8px_36px_rgb(0_0_0/0.35)] transition-colors ${streaming ? 'border-aqua-400/50' : 'border-ink-600 focus-within:border-ember-400/60'}`}>
+          <textarea
+            ref={taRef}
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setSlashOpen(e.target.value.startsWith('/'));
+              setSlashSel(0);
+            }}
+            onKeyDown={onKeyDown}
+            placeholder={streaming ? 'core is reasoning — wait or halt…' : 'Direct the core · arithmetic, units, time, memory, files, screen…'}
+            rows={1}
+            disabled={streaming}
+            className="block w-full resize-none bg-transparent px-4 pt-3.5 text-[14.5px] leading-relaxed text-ink-50 outline-none placeholder:text-ink-500 disabled:opacity-60"
+          />
+          <div className="flex items-center gap-1.5 px-2.5 pb-2.5 pt-1">
+            <button
+              type="button"
+              onClick={onAttachWorkspace}
+              className={`flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] uppercase tracking-wider transition-all active:scale-95 ${
+                workspaceName
+                  ? 'border-ok/50 bg-ok/10 text-ok'
+                  : 'border-ink-600 bg-ink-900 text-ink-400 hover:border-ember-400/50 hover:text-ember-300'
+              }`}
+              title="File System Access — sandboxed to .txt .md .csv .json"
+            >
+              <IconFolder size={12} />
+              {workspaceName ?? 'workspace'}
+            </button>
+            <button
+              type="button"
+              onClick={onReadScreen}
+              disabled={streaming}
+              className="flex items-center gap-1.5 rounded-md border border-ink-600 bg-ink-900 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-ink-400 transition-all hover:border-aqua-400/50 hover:text-aqua-300 active:scale-95 disabled:opacity-50"
+              title="Capture one frame + OCR → memory lattice"
+            >
+              <IconScreen size={12} />
+              read screen
+            </button>
+            <span className="ml-1 hidden truncate font-mono text-[9px] uppercase tracking-[0.14em] text-ink-500 sm:inline">{kernelLabel}</span>
+            <div className="ml-auto flex items-center gap-2">
+              {value.length > 0 && (
+                <span className="font-mono text-[9.5px] text-ink-500">
+                  {value.length} ch · ~{countTokens(value)} tk
+                </span>
+              )}
+              {streaming ? (
                 <button
                   type="button"
-                  onMouseEnter={() => setSel(i)}
-                  onClick={() => pick(c)}
-                  className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors ${i === sel ? 'bg-ink-700/70' : ''}`}
+                  onClick={onStop}
+                  className="flex items-center gap-1.5 rounded-md border border-danger/60 bg-danger/15 px-3 py-1.5 font-display text-[12px] font-semibold text-danger transition-all hover:bg-danger/25 active:scale-95"
                 >
-                  <span className={`font-mono text-[12px] ${i === sel ? 'text-ember-300' : 'text-aqua-300'}`}>{c.cmd}</span>
-                  <span className="truncate text-[12px] text-ink-300">{c.desc}</span>
-                  {i === sel && <span className="ml-auto shrink-0 font-mono text-[9.5px] uppercase tracking-widest text-ink-500">↵</span>}
+                  <IconStop size={13} /> Halt
                 </button>
-              </li>
-            ))}
-          </ul>
+              ) : (
+                <button
+                  type="button"
+                  onClick={submit}
+                  disabled={!value.trim()}
+                  className="flex items-center gap-1.5 rounded-md border border-ember-400/60 bg-ember-400/15 px-3.5 py-1.5 font-display text-[12px] font-semibold text-ember-300 transition-all hover:border-ember-400 hover:bg-ember-400/25 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <IconSend size={13} /> Execute
+                </button>
+              )}
+            </div>
+          </div>
         </div>
-      )}
-
-      <div
-        className={`flex items-end gap-2 rounded-xl border bg-ink-850/95 px-3 py-2.5 shadow-[0_6px_30px_rgb(0_0_0/0.4)] transition-colors ${
-          streaming ? 'border-warn/50' : 'border-ink-600 focus-within:border-ember-400/70'
-        }`}
-      >
-        <textarea
-          ref={taRef}
-          rows={1}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={streaming ? 'core is reasoning — hold…' : 'Direct the core — try `(2^10) * (3 + 4.5)` or type / for directives'}
-          className="max-h-[168px] min-h-[26px] flex-1 resize-none bg-transparent font-body text-[14.5px] leading-relaxed text-ink-50 outline-none placeholder:text-ink-500"
-        />
-        {value.trim().length > 0 && (
-          <span className="mb-1 shrink-0 font-mono text-[9.5px] text-ink-500">~{countTokens(value)} tk</span>
-        )}
-        {streaming ? (
-          <button
-            type="button"
-            onClick={onStop}
-            className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-danger/60 bg-danger/15 px-3.5 font-mono text-[11px] uppercase tracking-wider text-danger transition-all hover:bg-danger/25 active:scale-95"
-          >
-            <IconStop size={13} /> halt
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => submit(value)}
-            disabled={value.trim().length === 0}
-            className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-ember-400 px-4 font-display text-[12.5px] font-semibold tracking-wide text-ink-950 transition-all hover:bg-ember-300 active:scale-95 disabled:cursor-not-allowed disabled:bg-ink-700 disabled:text-ink-400"
-          >
-            <IconSend size={14} /> Send
-          </button>
-        )}
-      </div>
-
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-500">
-        <span>enter ⏎ send · shift+enter newline · / directives</span>
-        <span className="hidden sm:inline">⌘K command palette</span>
+        <div className="mt-1.5 flex items-center justify-between px-1 font-mono text-[9px] uppercase tracking-[0.16em] text-ink-600">
+          <span>enter execute · shift+enter newline · / registry</span>
+          <span>⌘K system search</span>
+        </div>
       </div>
     </div>
   );
