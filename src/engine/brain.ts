@@ -2,9 +2,11 @@
  * AXION-9 "Parallax" — deterministic reasoning core.
  * 38 tool modules, pattern-classified intents, zero network calls.
  */
-import { evaluate, formatNumber } from './math';
-import { convert, formatConverted } from './units';
-import { countTokens, uid, type BrainResult, type Candidate, type Memory, type ReasoningStep } from '../lib/store';
+import { formatNumber } from './math';
+import { formatConverted } from './units';
+import { convertKernel, evaluateKernel, kernelVersion } from './kernel-bridge';
+import { criticPassed, criticSummary, critiqueMath, critiquePercent, critiqueUnit } from './critic';
+import { countTokens, uid, type BrainResult, type Candidate, type CriticCheck, type Memory, type ReasoningStep } from '../lib/store';
 
 export interface MemoryOps {
   addNote: (text: string) => void;
@@ -27,12 +29,14 @@ interface ToolOut {
   confidence: number;
   error?: boolean;
   effect?: 'clear-chat';
+  critic?: CriticCheck[];
+  backend?: string;
 }
 
 interface Match {
   id: string;
   score: number;
-  run: () => ToolOut;
+  run: () => ToolOut | Promise<ToolOut>;
 }
 
 const MODULE_COUNT = 38;
@@ -137,7 +141,7 @@ const JOKES = [
 
 function detect(raw: string, lower: string, ctx: BrainCtx): Match[] {
   const m: Match[] = [];
-  const push = (id: string, score: number, run: () => ToolOut) => {
+  const push = (id: string, score: number, run: () => ToolOut | Promise<ToolOut>) => {
     if (score > 0) m.push({ id, score, run });
   };
   const words = raw.trim().split(/\s+/).filter(Boolean).length;
@@ -171,8 +175,17 @@ function detect(raw: string, lower: string, ctx: BrainCtx): Match[] {
 **Entropy**
 - \`roll 2d20\` · \`password 24\` · \`uuid\` · \`flip a coin\` · \`random color\`
 
+**Agentic hands & eyes**
+- \`fs attach\` — grant a directory (sandboxed to ${'.txt .md .csv .json'})
+- \`fs list\` · \`fs read <file>\` · \`fs save <file>\` — writes always ask consent
+- \`/screen\` — capture one frame, OCR it, commit the digest to the lattice
+- \`/graph\` — open the 3D knowledge graph of the memory lattice
+
+**Neuro-symbolic layer**
+- \`/neural on | off | status\` — the local LLM only answers what the core refuses, badged [Neural Fallback]
+
 **System**
-- \`/clear\` — wipe this session buffer · **\u2318K** — command palette`,
+- \`/clear\` — wipe this session buffer · **\u2318K** — fuzzy system search`,
     }));
   }
 
@@ -257,16 +270,20 @@ Point me at a computation, a date, a unit, or a task — or type \`/help\` for t
       const p = Number(pct[1]);
       const n = Number(pct[2]);
       const r = (p / 100) * n;
+      const critic = critiquePercent(p, n, r);
       return {
         tool: 'math.percent',
         toolLabel: 'Percentage algebra',
         confidence: 0.95,
+        critic,
+        backend: kernelVersion(),
         answer: `**Percentage resolved**
 
 \`${p}%\` of \`${formatNumber(n)}\` = **${formatNumber(r)}**
 
 - Complement: ${formatNumber(100 - p)}% = ${formatNumber(n - r)}
-- Ratio: ${formatNumber(Number((p / 100).toPrecision(6)))} \u00d7 base`,
+- Ratio: ${formatNumber(Number((p / 100).toPrecision(6)))} \u00d7 base
+- Critic: ${criticSummary(critic)}`,
       };
     });
   }
@@ -284,28 +301,51 @@ Point me at a computation, a date, a unit, or a task — or type \`/help\` for t
     /[+\-*/%^!(]/.test(mathClean);
   if (looksMath) {
     const hasLetters = /[a-z]/i.test(mathClean);
-    push('math.evaluate', hasLetters ? 0.82 : 0.97, () => {
-      try {
-        const r = evaluate(mathClean);
-        const pretty = formatNumber(r);
-        return {
-          tool: 'math.evaluate',
-          toolLabel: 'Sandboxed arithmetic kernel',
-          confidence: hasLetters ? 0.82 : 0.97,
-          answer: `**Computed**
+    push(
+      'math.evaluate',
+      hasLetters ? 0.82 : 0.97,
+      async (): Promise<ToolOut> => {
+        try {
+          const k = await evaluateKernel(mathClean);
+          const critic = critiqueMath(mathClean, k.value, k.backend);
+          if (!criticPassed(critic)) {
+            return {
+              tool: 'math.evaluate',
+              toolLabel: 'Sandboxed arithmetic kernel',
+              confidence: hasLetters ? 0.82 : 0.97,
+              error: true,
+              critic,
+              backend: k.version,
+              answer: `### Critic agent vetoed this result
 
-\`${mathClean.replace(/\*/g, '\u00d7')}\` = **${pretty}**
+The kernel computed \`${mathClean}\` = \`${k.formatted}\`, but independent verification failed:
 
-- Parsed by recursive descent — no eval, no cloud
-- Grammar: \`+ - * / ^ % !\`, functions (\`sqrt, ln, sin\u2026\`), constants (\`pi, e, tau, phi\`), implicit multiplication`,
-        };
-      } catch (err) {
-        return {
-          tool: 'math.evaluate',
-          toolLabel: 'Sandboxed arithmetic kernel',
-          confidence: hasLetters ? 0.82 : 0.97,
-          error: true,
-          answer: `### Kernel refused the expression
+${critic.map((c) => `- **${c.name}** — ${c.ok ? 'pass' : `FAIL: ${c.detail}`}`).join('\n')}
+
+I'm withholding the number rather than ship something unverified.`,
+            };
+          }
+          return {
+            tool: 'math.evaluate',
+            toolLabel: 'Sandboxed arithmetic kernel',
+            confidence: hasLetters ? 0.82 : 0.97,
+            critic,
+            backend: k.version,
+            answer: `**Computed**
+
+\`${mathClean.replace(/\*/g, '\u00d7')}\` = **${k.formatted}**
+
+- Backend: **${k.backend === 'wasm-worker' ? 'Rust/WASM kernel (off-main-thread worker)' : 'TypeScript kernel'}** — ${k.version}
+- Grammar: \`+ - * / ^ % !\`, functions (\`sqrt, ln, sin\u2026\`), constants (\`pi, e, tau, phi\`), implicit multiplication
+- Critic agent: ${criticSummary(critic)}`,
+          };
+        } catch (err) {
+          return {
+            tool: 'math.evaluate',
+            toolLabel: 'Sandboxed arithmetic kernel',
+            confidence: hasLetters ? 0.82 : 0.97,
+            error: true,
+            answer: `### Kernel refused the expression
 
 \`${mathClean}\`
 
@@ -313,9 +353,10 @@ The parser halted: **${err instanceof Error ? err.message : 'unknown fault'}**
 
 - Syntax accepted: \`2^10 * (3 + 4.5) - sqrt(81)\`, \`5!\`, \`min(3,4)\`, \`2pi\`
 - Identifiers must be known functions or constants — variables are out of scope`,
-        };
-      }
-    });
+          };
+        }
+      },
+    );
   }
 
   /* ---- units ---- */
@@ -329,19 +370,24 @@ The parser halted: **${err instanceof Error ? err.message : 'unknown fault'}**
       const value = Number(convMatch[1].replace(',', '.'));
       const from = parts[0].trim();
       const to = parts[1].trim().replace(/[?.!]\s*$/, '');
-      push('unit.convert', 0.93, () => {
+      push('unit.convert', 0.93, async (): Promise<ToolOut> => {
         try {
-          const r = convert(value, from, to);
+          const r = await convertKernel(value, from, to);
+          const critic = critiqueUnit(value, from, to, r.result);
           return {
             tool: 'unit.convert',
             toolLabel: 'Unit algebra',
             confidence: 0.93,
+            critic: criticPassed(critic) ? critic : critic,
+            backend: r.backend === 'wasm-worker' ? kernelVersion() : 'typescript kernel',
+            error: !criticPassed(critic) || undefined,
             answer: `**Conversion complete** — ${r.category}
 
 \`${formatConverted(value)} ${r.from}\` \u2192 **${formatConverted(r.result)} ${r.to}**
 
-- Path: ${r.from} \u2192 base unit \u2192 ${r.to}
-- Precision: 10 significant figures${r.approx ? '\n- Static reference rate \u2014 not live market data' : ''}`,
+- Path: ${r.from} \u2192 base unit \u2192 ${r.to} \u00b7 backend: ${r.backend === 'wasm-worker' ? 'Rust/WASM' : 'TypeScript'}
+- Precision: 10 significant figures${r.approx ? '\n- Static reference rate \u2014 not live market data' : ''}
+- Critic agent: ${criticSummary(critic)}${criticPassed(critic) ? '' : '\n\n**Verification failed** — treat this figure as suspect:\n' + critic.filter((c) => !c.ok).map((c) => `- ${c.name}: ${c.detail}`).join('\n')}`,
           };
         } catch (err) {
           return {
@@ -1002,7 +1048,7 @@ ${words > 40 ? `This looks like a long passage — try \`summarize: <paste it>\`
 
 /* ---------------- orchestrator ---------------- */
 
-export function runBrain(raw: string, ctx: BrainCtx): BrainResult {
+export async function runBrain(raw: string, ctx: BrainCtx): Promise<BrainResult> {
   const steps: ReasoningStep[] = [];
   const input = raw.trim();
   const lower = input.toLowerCase();
@@ -1027,7 +1073,7 @@ export function runBrain(raw: string, ctx: BrainCtx): BrainResult {
   });
 
   const t2 = performance.now();
-  const out = !top || top.score < 0.45 ? fallback(matches, input) : top.run();
+  const out = !top || top.score < 0.45 ? fallback(matches, input) : await top.run();
   steps.push({ label: `Dispatch \u2192 ${out.tool}`, detail: out.toolLabel, ms: round(performance.now() - t2) });
 
   const t3 = performance.now();
@@ -1046,5 +1092,22 @@ export function runBrain(raw: string, ctx: BrainCtx): BrainResult {
     confidence: top ? Math.min(0.99, top.score) : 0.12,
     error: out.error,
     effect: out.effect,
+    critic: out.critic,
+    backend: out.backend,
+    neuralCandidate: !top || top.score < 0.45 ? isNeuralCandidate(lower) : false,
   };
+}
+
+/**
+ * Gate for the neuro-symbolic fallback: only conceptual, language-shaped
+ * inputs qualify — never anything the deterministic core should own.
+ */
+export function isNeuralCandidate(lower: string): boolean {
+  const t = lower.trim();
+  const words = t.split(/\s+/).filter(Boolean).length;
+  if (words < 4) return false;
+  const interrogative =
+    /\?$/.test(t) ||
+    /^(why|how|explain|what is|what are|what's|who is|who was|should|would|could|can you|describe|compare|difference between|is it|are there|pros and cons)/.test(t);
+  return interrogative || words >= 9;
 }

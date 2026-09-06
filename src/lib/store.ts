@@ -11,6 +11,12 @@ export interface Candidate {
   score: number;
 }
 
+export interface CriticCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
 export interface Message {
   id: string;
   role: Role;
@@ -26,6 +32,9 @@ export interface Message {
   latency?: number;
   tokens?: number;
   error?: boolean;
+  critic?: CriticCheck[];
+  backend?: string;
+  neural?: boolean;
 }
 
 export interface Session {
@@ -68,6 +77,9 @@ export interface BrainResult {
   confidence: number;
   error?: boolean;
   effect?: 'clear-chat';
+  critic?: CriticCheck[];
+  backend?: string;
+  neuralCandidate?: boolean;
 }
 
 /* ---------------- helpers ---------------- */

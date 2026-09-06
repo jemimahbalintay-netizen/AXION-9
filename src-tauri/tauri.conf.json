@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AXION-9 Parallax",
+  "version": "9.4.1",
+  "identifier": "dev.axion.parallax",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "AXION-9 · Reasoning Console",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 960,
+        "minHeight": 640,
+        "center": true,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://esm.run https://cdn.jsdelivr.net"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [],
+    "category": "DeveloperTool",
+    "shortDescription": "Neuro-symbolic agentic reasoning console",
+    "longDescription": "AXION-9 Parallax — a deterministic 38-module reasoning core with a neural fallback layer, memory lattice, filesystem hands and screen vision. No Electron. ~12 MB shell."
+  }
+}

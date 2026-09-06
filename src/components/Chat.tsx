@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
-import { clockTime, type Candidate, type Message, type ReasoningStep } from '../lib/store';
-import { IconAlert, IconCalc, IconCheck, IconChevron, IconClock, IconCopy, IconDice, IconLattice, IconRefresh, IconSwap, IconText } from './icons';
+import { clockTime, type Message } from '../lib/store';
+import { TracePipeline } from './TracePipeline';
+import { IconAlert, IconBrain, IconCalc, IconCheck, IconChevron, IconClock, IconCopy, IconDice, IconLattice, IconRefresh, IconSwap, IconText } from './icons';
 
 /* ---------------- core mark ---------------- */
 
@@ -92,9 +93,11 @@ export function Rich({ text }: { text: string }) {
 
 /* ---------------- reasoning trace ---------------- */
 
-function TraceBlock({ steps, candidates, thinking }: { steps: ReasoningStep[]; candidates?: Candidate[]; thinking?: boolean }) {
+function TraceBlock({ msg, thinking }: { msg: Message; thinking?: boolean }) {
   const [open, setOpen] = useState(true);
   const expanded = thinking ? true : open;
+  const steps = msg.steps ?? [];
+  const candidates = msg.candidates;
   if (steps.length === 0) return null;
   return (
     <div className="mb-2.5 overflow-hidden rounded-md border border-ink-700/80 bg-ink-900/70">
@@ -136,16 +139,7 @@ function TraceBlock({ steps, candidates, thinking }: { steps: ReasoningStep[]; c
               </div>
             </div>
           )}
-          <ol className="space-y-1.5">
-            {steps.map((s, i) => (
-              <li key={i} className="flex items-baseline gap-2.5 font-mono text-[11px] anim-fade-up" style={{ animationDelay: `${i * 40}ms` }}>
-                <span className="shrink-0 text-ember-500">{String(i + 1).padStart(2, '0')}</span>
-                <span className="shrink-0 text-ink-100">{s.label}</span>
-                <span className="min-w-0 flex-1 truncate text-ink-400">{s.detail}</span>
-                <span className="shrink-0 text-ink-500">{s.ms}ms</span>
-              </li>
-            ))}
-          </ol>
+          <TracePipeline msg={msg} />
         </div>
       )}
     </div>
@@ -192,6 +186,11 @@ export function MessageBubble({ msg, onCopy, onRegenerate }: BubbleProps) {
           )}
           {typeof msg.latency === 'number' && <span className="text-ink-400">{msg.latency}ms</span>}
           {typeof msg.tokens === 'number' && <span className="text-ink-400">{msg.tokens} tk</span>}
+          {msg.neural && (
+            <span className="flex items-center gap-1 rounded border border-aqua-400/60 bg-aqua-400/10 px-1.5 py-0.5 text-aqua-300">
+              <IconBrain size={10} /> Neural Fallback
+            </span>
+          )}
           {msg.error && (
             <span className="flex items-center gap-1 rounded border border-danger/50 bg-danger/10 px-1.5 py-0.5 text-danger">
               <IconAlert size={10} /> fault
@@ -203,7 +202,7 @@ export function MessageBubble({ msg, onCopy, onRegenerate }: BubbleProps) {
           <span className="ml-auto text-ink-500">{clockTime(msg.ts)}</span>
         </div>
 
-        <TraceBlock steps={msg.steps ?? []} candidates={msg.candidates} thinking={streaming} />
+        <TraceBlock msg={msg} thinking={streaming} />
 
         {streaming && msg.content === '' ? (
           <div className="flex items-center gap-2.5 py-1 font-mono text-[11.5px] text-aqua-300">

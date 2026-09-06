@@ -1,5 +1,27 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { IconAlert, IconCheck, IconCommand, IconInfo, IconSearch } from './icons';
+
+/* ---------------- fuzzy scoring ---------------- */
+
+function fuzzyScore(query: string, label: string): number {
+  const q = query.trim().toLowerCase();
+  const t = label.toLowerCase();
+  if (!q) return 1;
+  if (t.includes(q)) return 2 + (q.length / t.length);
+  let qi = 0;
+  let score = 0;
+  let streak = 0;
+  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
+    if (t[ti] === q[qi]) {
+      qi++;
+      streak++;
+      score += 1 + streak * 0.4;
+    } else {
+      streak = 0;
+    }
+  }
+  return qi === q.length ? score / q.length : 0;
+}
 
 /* ---------------- command palette ---------------- */
 
@@ -22,7 +44,13 @@ export function Palette({ open, onClose, items, onRun }: PaletteProps) {
   const [sel, setSel] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const filtered = items.filter((i) => i.label.toLowerCase().includes(q.trim().toLowerCase()));
+  const filtered = useMemo(() => {
+    const scored = items
+      .map((item) => ({ item, score: fuzzyScore(q, `${item.label} ${item.hint ?? ''}`) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score);
+    return scored.map((x) => x.item).slice(0, 24);
+  }, [items, q]);
 
   useEffect(() => {
     if (open) {
@@ -61,14 +89,14 @@ export function Palette({ open, onClose, items, onRun }: PaletteProps) {
                 onClose();
               }
             }}
-            placeholder="Search directives and actions…"
+            placeholder="Fuzzy search — directives, memory nodes, workspace files…"
             className="flex-1 bg-transparent text-[14px] text-ink-50 outline-none placeholder:text-ink-500"
           />
           <kbd className="rounded border border-ink-600 bg-ink-850 px-1.5 py-0.5 font-mono text-[9.5px] text-ink-400">esc</kbd>
         </div>
         <div className="max-h-[46vh] overflow-y-auto py-1.5">
           {filtered.length === 0 && (
-            <div className="px-4 py-8 text-center font-mono text-[12px] text-ink-500">no directive matches “{q}”</div>
+            <div className="px-4 py-8 text-center font-mono text-[12px] text-ink-500">no match for “{q}” across the system</div>
           )}
           {groups.map((g) => (
             <div key={g}>
@@ -131,6 +159,72 @@ export function Toasts({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: 
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/* ---------------- confirm modal (filesystem writes) ---------------- */
+
+export interface PendingWrite {
+  name: string;
+  content: string;
+  exists: boolean;
+  workspace: string;
+}
+
+export function WriteConfirmModal({
+  pending,
+  onConfirm,
+  onReject,
+}: {
+  pending: PendingWrite | null;
+  onConfirm: () => void;
+  onReject: () => void;
+}) {
+  if (!pending) return null;
+  const lines = pending.content.split('\n').length;
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center px-4">
+      <button type="button" aria-label="Cancel write" onClick={onReject} className="anim-fade-in absolute inset-0 bg-ink-950/80 backdrop-blur-sm" />
+      <div className="anim-fade-up relative w-full max-w-lg overflow-hidden rounded-xl border border-ink-600 bg-ink-900 shadow-[0_30px_100px_rgb(0_0_0/0.7)]">
+        <div className="flex items-center gap-2.5 border-b border-ink-700 px-4 py-3">
+          <IconAlert size={15} className={pending.exists ? 'text-warn' : 'text-aqua-300'} />
+          <div>
+            <h3 className="font-display text-[14px] font-bold text-ink-50">
+              {pending.exists ? 'Overwrite file?' : 'Create file?'}
+            </h3>
+            <div className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-400">
+              {pending.workspace} / {pending.name}
+            </div>
+          </div>
+        </div>
+        <div className="max-h-56 overflow-y-auto border-b border-ink-700 bg-ink-950/60 px-4 py-3">
+          <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-ink-200">
+            {pending.content.length > 1400 ? `${pending.content.slice(0, 1400)}\n… (${pending.content.length} chars total)` : pending.content}
+          </pre>
+        </div>
+        <div className="flex items-center gap-2 px-4 py-3">
+          <span className="font-mono text-[10px] text-ink-500">
+            {pending.content.length} chars · {lines} line{lines === 1 ? '' : 's'}
+          </span>
+          <div className="ml-auto flex gap-1.5">
+            <button type="button" onClick={onReject} className="rounded-md border border-ink-600 px-3.5 py-1.5 font-mono text-[11px] uppercase tracking-wider text-ink-300 transition-all hover:bg-ink-800 active:scale-95">
+              deny
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              className={`rounded-md border px-3.5 py-1.5 font-display text-[12px] font-semibold transition-all active:scale-95 ${
+                pending.exists
+                  ? 'border-warn/60 bg-warn/15 text-warn hover:bg-warn/25'
+                  : 'border-ok/60 bg-ok/15 text-ok hover:bg-ok/25'
+              }`}
+            >
+              {pending.exists ? 'overwrite' : 'write file'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
